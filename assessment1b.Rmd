@@ -5,7 +5,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+#Suppressing code, messages and warnings from printing
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE) 
+
 libs <- c("astsa","forecast","lmtest","zoo","readr")
 
 missing <- !libs %in% installed.packages()
@@ -24,7 +26,7 @@ To complete your assignment:
 * Use git to `commit` changes you make in this repo locally.   
 
 * `Push` the repo, together with this edited file and the corresponding `.md` file to GitHub Classroom.  
-You can `commit` and `push` as often as neccessary---your assessment will be graded on the most recent version of your repo at the assessment due date. 
+You can `commit` and `push` as often as necessary---your assessment will be graded on the most recent version of your repo at the assessment due date. 
 
 Good luck!
 
@@ -45,7 +47,7 @@ You may need to have the following packages installed: `astsa`, `forecast`, and 
 
 The data are contained in your assignment repo in the file `crash.csv` and can be read as follows:
 
-``` {r read-data}
+```{r undefined, echo=TRUE}
 library(readr)
 crash <- read_csv('crash.csv')
 ```
@@ -58,9 +60,73 @@ crash <- read_csv('crash.csv')
 
 (1) Create a plot(s) of the number of crashes, both overall (*total_crash*) and for novice drivers (*novice_crash*), as if you were preparing it for inclusion in a report or publication. The date of the intervention should be clearly indicated. (15%)
 
+```{r q1, echo=FALSE, fig.height=3.5, fig.width=8}
+novice_crash <- ts(crash[,2], start=c(2002,1), end=c(2009,12), frequency=12)
+all_crash <- ts(crash[,3], start=c(2002,1), end=c(2009,12), frequency=12)
+
+par(mfrow=c(1,2), cex.axis=.8, cex.lab=.8)
+plot(novice_crash, ylim=c(150,400), xlab="Month", ylab="Number of crashes",col="deepskyblue3")
+title(main="Fig 1. Monthly crashes involving novice\ndrivers in Queensland, 2002-2009", cex.main=.8, adj=0)
+abline(v='2007.5',lty="dashed",col="gray70")
+
+plot(all_crash,  ylim=c(800,1500), xlab="Month", ylab="Number of crashes",
+              col="firebrick")
+title(main="Fig 2. Monthly crashes involving all\ndrivers in Queensland, 2002-2009", cex.main=.8, adj=0)
+abline(v='2007.5',lty="dashed",col="gray70")
+
+```
+
+***
 
 (2) Describe the characteristics of both time series in terms of the trend, seasonality, and outliers. Use plots and summary statistics to support your statements. (10%)
 
+```{r q2_1, echo=FALSE, fig.height=3.5, fig.width=4}
+library(forecast)
+
+# Decomposition plots
+par(mfrow=c(2,2), cex.main=.8, cex.lab=.8)
+plot(decompose(novice_crash))
+plot(decompose(all_crash))
+
+# Seasonal plots
+ggseasonplot(novice_crash)
+ggseasonplot(all_crash)
+
+```
+
+```{r q2_2, include=FALSE}
+#Summary stats
+summary(novice_crash)
+summary(all_crash)
+
+#Summary stats by month
+tapply(novice_crash, cycle(novice_crash), summary)
+tapply(all_crash, cycle(all_crash), summary)
+
+```
+**ANSWER:**
+
+*Novice crashes:*
+
+Overall, the median number of novice crashes per month was 291 (interquartile range, 265-305).
+
+* *Trend*: The number of crashes was relatively constant prior to mid-2006 or so, when it started to increase, and then decrease after 2008. Looking at the seasonal plot, the number of crashes appears lowest in 2009, at the end of the series. It suggests that the change in crashes might best be described by a change in slope.
+
+* *Seasonality*: The number of crashes is lowest in January/February, but no other clear patterns are observed during the rest of the year. The median values in January and February were 251 and 267, while they were highest in November (median=306). Given this, it may be necessary to include seasonality in our regression models.
+
+* *Outliers*: Looking at the seasonal plot, February 2009 (220 crashes) is lower than all other values. In contrast, observations in late 2007 are higher than expected. This is consistent with the trend data. 
+
+*All crashes:*
+
+Overall, the median number of crashes for all drivers per month was 1186 (interquartile range, 1112-1232).
+
+* *Trend*: A very similar trend was observed for all crashes compared with novice crashes, however the number of all crashes appears to have been increasing slightly prior to the intervention, in contrast to novice crashes which appeared stable.
+
+* *Seasonality*: The number of crashes is lowest in January/February like with novice crashes. The median values in January and February were 1034 and 1082, while they were highest in March (median=1256). 
+
+* *Outliers*: Looking at the seasonal plot, May 2008 is higher than all other values (1396 crashes), but doesn't seem extreme enough to warrant further examination.
+
+***
 
 (3) Create the necessary vectors to fit the regression models listed below. Here, `time` is the time since start of the study, `grad` is an indicator for the graduated licensing intervention (before=0, after=1), `time.after` is the time since the intervention, `month` is a monthly dummy variable, and `grad.lag1` and `time.after.lag1` are `grad` and `time.after` delayed/lagged by one month. State which model you believe best describes the association between the intervention, and the number of crashes involving novice drivers over time. Provide evidence to justify your answer. (25%)
 
@@ -69,36 +135,141 @@ crash <- read_csv('crash.csv')
     * **Model 3** - novice_crash ~ time + grad.lag1 + time.after.lag1 + month
     * **Model 4** - novice_crash ~ time + grad.lag1 + time.after.lag1
 
+```{r q3_1, include=FALSE}
+#Time variable representing baseline slope
+time <- seq(1,length(novice_crash))
+time <- ts(time, start=c(2002,1), frequency=12)
+time
+
+#Step change variable representing level shift post intervention
+grad <- append(rep(0,sum(time(novice_crash)<2007.5)),rep(1,sum(time(novice_crash)>=2007.5)))
+grad <- ts(grad,start=c(2002,1), frequency=12)
+grad
+
+#Time since intervention representing change in slope
+time.after <- append(rep(0,sum(time(novice_crash)<2007.5)),seq(1,sum(time(novice_crash)>=2007.5)))
+time.after <- ts(time.after, start=c(2002,1), frequency=12)
+time.after
+
+#Monthly dummy variables
+month <- seasonaldummy(novice_crash)
+head(month)
+
+#Step change variable representing level shift post intervention lagged by one month
+grad.lag1 <- append(rep(0,sum(time(novice_crash)<2007.583)),rep(1,sum(time(novice_crash)>=2007.583)))
+grad.lag1 <- ts(grad.lag1,start=c(2002,1), frequency=12)
+grad.lag1
+
+#Time since intervention representing change in slope lagged by one month
+time.after.lag1 <- append(rep(0,sum(time(novice_crash)<2007.583)),seq(1,sum(time(novice_crash)>=2007.583)))
+time.after.lag1 <- ts(time.after.lag1, start=c(2002,1), frequency=12)
+time.after.lag1
+
+
+```
+```{r q3_2, echo=FALSE}
+#Run models
+model1 <- lm(novice_crash ~ time + grad + time.after + month)
+model2 <- lm(novice_crash ~ time + grad + time.after)
+model3 <- lm(novice_crash ~ time + grad.lag1 + time.after.lag1 + month)
+model4 <- lm(novice_crash ~ time + grad.lag1 + time.after.lag1)
+
+#Check model fit using residual plots
+par(mfrow=c(2,2))
+plot(model1)
+par(mfrow=c(2,2))
+plot(model2)
+par(mfrow=c(2,2))
+plot(model3)
+par(mfrow=c(2,2))
+plot(model4)
+
+#Check for autocorrelation of residuals using Ljung-Box test
+Box.test(model1$residuals, type='Ljung-Box', lag=12)
+Box.test(model2$residuals, type='Ljung-Box', lag=12)
+Box.test(model3$residuals, type='Ljung-Box', lag=12)
+Box.test(model4$residuals, type='Ljung-Box', lag=12)
+
+#Output AIC for all models
+AIC(model1)
+AIC(model2)
+AIC(model3)
+AIC(model4)
+
+```
+```{r q3_3, include=FALSE}
+#Parameter estimates for all models
+summary(model1)
+summary(model2)
+summary(model3)
+summary(model4)
+
+```
+
+**ANSWER:**
+
+There are several things to consider in choosing the "best" model.
+
+* First, we identified seasonality in Q2, meaning it is probably a good idea to include season in our model (as in Model 1 and Model 3).
+* Looking at the residual plots, there is potentially some heteroscedasticity (non-constant variance) in the residuals for Models 2 and 4, as evidenced by the inconsistent spread around the red line in the "Residuals vs Fitted" plot and the "Scale-Location" plot. However, the residual plots for Models 1 and 3 look okay, with roughly normally distributed residuals (see QQ plot), relatively constant variance (see residuals vs fitted values plots), and no extreme values (see leverage plot).
+* However, the Ljung-Box test for autocorrelation of residuals has identified significant residual autocorrelation for Models 2 and 4 (p<0.05), but not for Models 1 and 3 (p>0.05) meaning that Models 2 and 4 are not great options.
+* Model 1 has the lowest AIC of all models (841.1451) suggesting it had the best fit.
+* The results for Models 1 and 3 are very similar and our conclusions won't change based on which we choose.
+* Finally, given that we don't have any compelling a priori reason to prefer either an immediate or delayed impact, Model 1 is the best option. It has a good fit as all the assumptions of linear regression are met (residuals are normally distributed with constant variance and no autocorrelation), it has the lowest AIC, and it adjusts for seasonality which we previously determined was a potential issue.
+
+***
 
 (4) Using `auto.arima()`, identify the most appropriate ARIMA model orders for modelling the impact of the intervention on novice crashes, assuming an immediate (not delayed) impact. Think carefully about which parameters to pre-specify. State whether you would prefer the segmented regression model chosen in question (3), or this ARIMA model, and briefly justify your decision. (20%)
+
+```{r q4, include=FALSE}
+#Prespecify d=1 and D=1
+auto.arima(novice_crash, d=1, D=1, seasonal=TRUE, xreg=cbind(grad,time.after), stepwise=FALSE)
+```
+```{r q4_2, echo=FALSE}
+#Run model using sarima to get residuals plots
+library(astsa)
+arima.mod <- sarima(novice_crash, p=0, d=1, q=1, P=2, D=1, Q=0, S=12, xreg=cbind(grad, time.after))
+
+```
+
+**ANSWER:**
+
+*Note: there are a few different possible approaches to this question.*
+
+Given that the trend isn't linear for the entire pre-intervention time period (i.e. it starts increasing prior to July 2007), it is good idea to include d=1. As the data are seasonal and d=1, we also specify D=1. We will let `auto.arima` choose p, q, P and Q. [*You could also say that there is no pre-intervention trend (e.g. based on a stationarity test of the data prior to the intervention) and specify d=0 and D=0.*]
+
+`auto.arima()` suggests (0,1,1)(2,1,0)~12~. [*If the `stepwise=FALSE` option is not specified, then `auto.arima()` gives (0,1,1)(0,1,1)~12~. Both are acceptable.*] Looking at the residual plots for this model, it has a good fit with normally distributed residuals (QQ plot) and no residual autocorrelation (based on the ACF of residuals and Ljung-Box plot).
+
+Given that the ARIMA model and segmented regression model give similar results, and both fit the data well, I would prefer the segmented regression model as it can estimate the pre-intervention trend. [*Or, you can say that you prefer the ARIMA model due to the changing trend pre-intervention. Both are acceptable.*]
+
+
+***
 
 
 (5) Using the most appropriate model from question (3) or (4), describe the impact of the intervention on novice crashes. What is your conclusion about the effect of the intervention? Provide effect estimates and relevant statistics to support your answer. (15%)
 
+```{r q5, include=FALSE}
+#Get estimates and 95% CIs for model 1
+summary(model1)
+confint(model1)
+```
 
+**ANSWER:**
+
+I will used the estimates from Model 1 in Q3.
+
+Prior to the intervention in July 2007, the number of novice driver crashes in Queensland was constant over time with a slope of -0.1 per month (95% CI -0.3 to 0.1). Immediately after the introduction of graduated driver licensing, the number of crashes increased by a level shift of 56.2 crashes (95% CI 40.2 to 72.2), and there was a change in slope of -3.5 (95% CI -4.3 to -2.7). This means that after the intervention crashes were decreasing by -3.6 (-0.1 + -3.5) per month. Thus, the introduction of graduated licensing appears to have been associated with a change in novice crashes in Queensland. 
+
+***
+
+ 
 (6) Including a negative control series is an interrupted time series analysis is one way of improving causal inference from interrupted time series analysis. Give an example of a negative control series and justify your selection, and explain how a negative control series can help with inference. (15%)
 
+**ANSWER:**
+
+An appropriate control would be novice drivers from a different Australian state such as NSW that did not introduce graduated licensing around this time. The negative control should be as similar as possible to the population of interest, except that they were not targeted by or exposed to the intervention. [*There are other potential appropriate negative controls that could have been chosen, as long as they were well justified.*] 
+
+One of the challenges of interrupted time series is that there may be other confounding factors that led to a change in the number of novice crashes, such as co-occurring interventions around the same time as the introduction of graduated licensing (e.g. a driver safety awareness campaign or similar), which may have been responsible for the change in number of crashes. The first step for making use of a negative control series is to evaluate whether there were any changes in this series at the time of the introduction of graduated licensing in July 2007. If we did observe a change in the control series that is similar in magnitude to the change observed in the novice driver crashes, this tells that there is something else causing the change, rather than the introduction graduated licensing. Thus, we cannot say with certainty that the observed changes were due to graduated licensing. On the other hand, if we observed no change in the control series, this provides stronger evidence that the change in the novice driver crashes was due to graduated licensing.
+
+
 ***
-
-### Solution
-
-
-
-***
-
-### Student declaration
-
-**_Instructions: Indicate that you understand and agree with the following three statements by typing an x in the square brackets below, e.g. [x]._** 
-
-I declare that this assessment item is my own work, except where acknowledged, and has not been submitted for academic credit elsewhere or previously, or produced independently of this course (e.g. for a third party such as your place of employment) and acknowledge that the assessor of this item may, for the purpose of assessing this item: (i) Reproduce this assessment item and provide a copy to another member of the University; and/or (ii) Communicate a copy of this assessment item to a plagiarism checking service (which may then retain a copy of the assessment item on its database for the purpose of future plagiarism checking).  
-
-- [ ] I understand and agree
-
-I certify that I have read and understood the University Rules in respect of Student Academic Misconduct.  
-
-- [ ] I understand and agree
-
-I have a backup copy of the assessment.  
-
-- [ ] I understand and agree
-
